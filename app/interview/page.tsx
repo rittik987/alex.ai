@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ChatInterface from '@/components/interview/ChatInterface';
 import CodeEditor from '@/components/interview/CodeEditor';
+import VideoInterface from '@/components/interview/VideoInterface';
 import { Card } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -93,99 +94,88 @@ export default function InterviewPage() {
           </div>
         </div>
 
-        {/* Video Mode Notice */}
-        {mode === 'video' && (
-          <Card className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 border-purple-500/30 p-6 mb-6">
-            <div className="flex items-center gap-3">
-              <Video className="h-6 w-6 text-purple-400" />
-              <div>
-                <h3 className="text-white font-semibold">Video Interview Mode</h3>
-                <p className="text-gray-300 text-sm">
-                  Video interview functionality is coming soon! For now, enjoy our advanced chat-based interview practice.
-                </p>
-              </div>
-            </div>
-          </Card>
-        )}
+        {/* Video Mode */}
+        {mode === 'video' ? (
+          <VideoInterface topic={topic} />
+        ) : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-12rem)]">
+            {/* Left Panel - Chat & Coding Tabs */}
+            <Card className="bg-gray-800/50 border-gray-700 p-6">
+              <Tabs defaultValue="chat" className="h-full">
+                <TabsList className="grid w-full grid-cols-2 bg-gray-700/50">
+                  <TabsTrigger value="chat" className="flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4" />
+                    Chat Interview
+                  </TabsTrigger>
+                  <TabsTrigger value="code" className="flex items-center gap-2">
+                    <Code className="h-4 w-4" />
+                    Coding Challenge
+                  </TabsTrigger>
+                </TabsList>
+                
+                <TabsContent value="chat" className="h-[calc(100%-3rem)]">
+                  <ChatInterface topic={topic} />
+                </TabsContent>
+                
+                <TabsContent value="code" className="h-[calc(100%-3rem)]">
+                  <CodeEditor />
+                </TabsContent>
+              </Tabs>
+            </Card>
 
-        {/* Main Interface */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 h-[calc(100vh-12rem)]">
-          {/* Left Panel - Chat & Coding Tabs */}
-          <Card className="bg-gray-800/50 border-gray-700 p-6">
-            <Tabs defaultValue="chat" className="h-full">
-              <TabsList className="grid w-full grid-cols-2 bg-gray-700/50">
-                <TabsTrigger value="chat" className="flex items-center gap-2">
-                  <MessageCircle className="h-4 w-4" />
-                  Chat Interview
-                </TabsTrigger>
-                <TabsTrigger value="code" className="flex items-center gap-2">
-                  <Code className="h-4 w-4" />
-                  Coding Challenge
-                </TabsTrigger>
-              </TabsList>
-              
-              <TabsContent value="chat" className="h-[calc(100%-3rem)]">
-                <ChatInterface topic={topic} />
-              </TabsContent>
-              
-              <TabsContent value="code" className="h-[calc(100%-3rem)]">
-                <CodeEditor />
-              </TabsContent>
-            </Tabs>
-          </Card>
-
-          {/* Right Panel - AI Coach Feedback */}
-          <Card className="bg-gray-800/50 border-gray-700 p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Brain className="h-5 w-5 text-purple-400" />
-              <h2 className="text-lg font-semibold text-white">AI Coach Feedback</h2>
-            </div>
-            
-            <div className="space-y-4 h-[calc(100%-3rem)] overflow-y-auto">
-              <div className="bg-gray-700/50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-purple-300 mb-2">Real-time Analysis</h3>
-                <p className="text-gray-300 text-sm">
-                  Start your interview practice to receive personalized feedback and coaching tips for {topicTitle}.
-                </p>
+            {/* Right Panel - AI Coach Feedback */}
+            <Card className="bg-gray-800/50 border-gray-700 p-6">
+              <div className="flex items-center gap-2 mb-4">
+                <Brain className="h-5 w-5 text-purple-400" />
+                <h2 className="text-lg font-semibold text-white">AI Coach Feedback</h2>
               </div>
               
-              <div className="bg-gray-700/50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-blue-300 mb-2">Performance Metrics</h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-gray-400 text-sm">Communication</span>
-                    <span className="text-gray-300 text-sm">-</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400 text-sm">Technical Skills</span>
-                    <span className="text-gray-300 text-sm">-</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-400 text-sm">Problem Solving</span>
-                    <span className="text-gray-300 text-sm">-</span>
+              <div className="space-y-4 h-[calc(100%-3rem)] overflow-y-auto">
+                <div className="bg-gray-700/50 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-purple-300 mb-2">Real-time Analysis</h3>
+                  <p className="text-gray-300 text-sm">
+                    Start your interview practice to receive personalized feedback and coaching tips for {topicTitle}.
+                  </p>
+                </div>
+                
+                <div className="bg-gray-700/50 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-blue-300 mb-2">Performance Metrics</h3>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400 text-sm">Communication</span>
+                      <span className="text-gray-300 text-sm">-</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400 text-sm">Technical Skills</span>
+                      <span className="text-gray-300 text-sm">-</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400 text-sm">Problem Solving</span>
+                      <span className="text-gray-300 text-sm">-</span>
+                    </div>
                   </div>
                 </div>
+                
+                <div className="bg-gray-700/50 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-green-300 mb-2">Topic Focus: {topicTitle}</h3>
+                  <p className="text-gray-300 text-sm">
+                    {topic === 'problem-solving-dsa' && 'Focus on algorithmic thinking, data structure selection, and code optimization.'}
+                    {topic === 'reactjs-deep-dive' && 'Demonstrate knowledge of React hooks, state management, and component lifecycle.'}
+                    {topic === 'nextjs-fullstack' && 'Show understanding of SSR, API routes, and full-stack architecture.'}
+                    {topic === 'system-design-basics' && 'Explain scalability, load balancing, and distributed system concepts.'}
+                  </p>
+                </div>
+                
+                <div className="bg-gray-700/50 rounded-lg p-4">
+                  <h3 className="text-sm font-medium text-yellow-300 mb-2">Suggestions</h3>
+                  <p className="text-gray-300 text-sm">
+                    Coaching suggestions will appear here as you progress through the interview.
+                  </p>
+                </div>
               </div>
-              
-              <div className="bg-gray-700/50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-green-300 mb-2">Topic Focus: {topicTitle}</h3>
-                <p className="text-gray-300 text-sm">
-                  {topic === 'problem-solving-dsa' && 'Focus on algorithmic thinking, data structure selection, and code optimization.'}
-                  {topic === 'reactjs-deep-dive' && 'Demonstrate knowledge of React hooks, state management, and component lifecycle.'}
-                  {topic === 'nextjs-fullstack' && 'Show understanding of SSR, API routes, and full-stack architecture.'}
-                  {topic === 'system-design-basics' && 'Explain scalability, load balancing, and distributed system concepts.'}
-                </p>
-              </div>
-              
-              <div className="bg-gray-700/50 rounded-lg p-4">
-                <h3 className="text-sm font-medium text-yellow-300 mb-2">Suggestions</h3>
-                <p className="text-gray-300 text-sm">
-                  Coaching suggestions will appear here as you progress through the interview.
-                </p>
-              </div>
-            </div>
-          </Card>
-        </div>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );

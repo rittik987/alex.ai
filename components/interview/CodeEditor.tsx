@@ -102,6 +102,7 @@ int main() {
 };
 
 interface CodeEditorProps {
+  question?: string;
   onSubmitCode?: (code: string, language: string) => void;
 }
 
