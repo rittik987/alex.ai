@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import AuthModal from '@/components/auth/AuthModal';
+import DashboardSkeleton from '@/components/dashboard/DashboardSkeleton';
 import { 
   Brain, 
   MessageCircle, 
@@ -88,27 +89,13 @@ export default function HomePage() {
 
   if (loading || !isMounted) {
     console.log('⏳ HomePage: Loading...');
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Brain className="h-12 w-12 text-purple-400 animate-pulse mx-auto mb-4" />
-          <p className="text-gray-300">Loading...</p>
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   // Don't render the page content if user is authenticated (they should be redirected)
   if (user) {
     console.log('👤 HomePage: User authenticated, should be redirected');
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/20 to-gray-900 flex items-center justify-center">
-        <div className="text-center">
-          <Brain className="h-12 w-12 text-purple-400 animate-pulse mx-auto mb-4" />
-          <p className="text-gray-300">Redirecting...</p>
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   return (
