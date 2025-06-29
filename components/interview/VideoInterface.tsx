@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 const ReactPlayer = dynamic(() => import('react-player'), { ssr: false });
 import { useSpeechRecognition } from '@/hooks/useSpeechRecognition';
 import { Button } from '@/components/ui/button';
-import { Brain, Mic, MicOff, Code, Play, Send, X } from 'lucide-react';
+import { Brain, Mic, MicOff, Code, Play, Send, X, CheckCircle } from 'lucide-react';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AudioStreamHandler } from '@/lib/utils/audio-handler';
@@ -17,6 +17,7 @@ enum InterviewState {
   AI_SPEAKING = 'AI_SPEAKING',
   USER_LISTENING = 'USER_LISTENING',
   AI_THINKING = 'AI_THINKING',
+  COMPLETED = 'COMPLETED',
 }
 
 interface CurrentQuestion {
@@ -39,6 +40,20 @@ interface TeachingSession {
   modelAnswer: string;
 }
 
+interface InterviewFeedback {
+  communication: string;
+  technicalSkills: string;
+  problemSolving: string;
+  suggestions: string[];
+}
+
+interface InterviewData {
+  responses: string[];
+  startTime: Date | null;
+  endTime: Date | null;
+  questionsAnswered: number;
+}
+
 export default function VideoInterface({ topic }: { topic: string }) {
   const [interviewState, setInterviewState] = useState<InterviewState>(InterviewState.IDLE);
   const [aiText, setAiText] = useState('');
@@ -55,6 +70,18 @@ export default function VideoInterface({ topic }: { topic: string }) {
     content: '',
     questionText: '',
     modelAnswer: ''
+  });
+  const [feedback, setFeedback] = useState<InterviewFeedback>({
+    communication: '-',
+    technicalSkills: '-',
+    problemSolving: '-',
+    suggestions: []
+  });
+  const [interviewData, setInterviewData] = useState<InterviewData>({
+    responses: [],
+    startTime: null,
+    endTime: null,
+    questionsAnswered: 0
   });
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioStreamHandler = useRef<AudioStreamHandler | null>(null);
@@ -99,6 +126,22 @@ export default function VideoInterface({ topic }: { topic: string }) {
     setSubtitle('Starting your interview...');
     setCurrentQuestionIndex(0);
     
+    // Initialize interview data
+    setInterviewData({
+      responses: [],
+      startTime: new Date(),
+      endTime: null,
+      questionsAnswered: 0
+    });
+
+    // Initialize feedback
+    setFeedback({
+      communication: 'Evaluating...',
+      technicalSkills: 'Evaluating...',
+      problemSolving: 'Evaluating...',
+      suggestions: ['Interview in progress...']
+    });
+    
     try {
       const response = await fetch('/api/interview/chat', {
         method: 'POST',
@@ -139,9 +182,44 @@ export default function VideoInterface({ topic }: { topic: string }) {
     }
   };
 
+  // Generate feedback based on interview data
+  const generateFeedback = () => {
+    const { responses, startTime, questionsAnswered } = interviewData;
+    
+    // Calculate metrics
+    const averageResponseLength = responses.reduce((sum, r) => sum + r.length, 0) / responses.length;
+    const completionRate = (questionsAnswered / questionSet.length) * 100;
+    const duration = startTime ? Math.floor((new Date().getTime() - startTime.getTime()) / 60000) : 0;
+    
+    // Generate feedback based on metrics
+    const communication = averageResponseLength > 200 ? 'Excellent' : averageResponseLength > 100 ? 'Good' : 'Needs Improvement';
+    const technicalSkills = completionRate > 80 ? 'Strong' : completionRate > 60 ? 'Good' : 'Developing';
+    const problemSolving = duration < 30 ? 'Efficient' : duration < 45 ? 'Methodical' : 'Thorough';
+    
+    // Generate suggestions
+    const suggestions = [];
+    if (averageResponseLength < 150) suggestions.push('Try to provide more detailed responses');
+    if (completionRate < 80) suggestions.push('Focus on completing all questions thoroughly');
+    if (duration > 45) suggestions.push('Work on improving response time while maintaining quality');
+    suggestions.push('Keep practicing and stay confident!');
+    
+    return {
+      communication,
+      technicalSkills,
+      problemSolving,
+      suggestions
+    };
+  };
+
   // Process user response and generate AI reply
   const processUserResponse = async (userInput: string) => {
     if (!userInput.trim() || !isInterviewActive) return;
+    
+    // Track user response for feedback
+    setInterviewData(prev => ({
+      ...prev,
+      responses: [...prev.responses, userInput]
+    }));
     
     // Stop listening and update state
     stopListening();
@@ -432,9 +510,20 @@ export default function VideoInterface({ topic }: { topic: string }) {
   // End the interview
   const endInterview = () => {
     setIsInterviewActive(false);
-    setInterviewState(InterviewState.IDLE);
+    setInterviewState(InterviewState.COMPLETED);
     setSubtitle('Interview ended. Thank you for your time!');
     stopListening();
+    
+    // Set end time and generate feedback
+    setInterviewData(prev => ({
+      ...prev,
+      endTime: new Date(),
+      questionsAnswered: currentQuestionIndex
+    }));
+    
+    // Generate final feedback
+    const finalFeedback = generateFeedback();
+    setFeedback(finalFeedback);
     
     if (audioRef.current) {
       audioRef.current.pause();
@@ -546,148 +635,279 @@ export default function VideoInterface({ topic }: { topic: string }) {
   };
 
   return (
-    <div className="w-full min-h-screen bg-gray-900 flex text-white">
-      {/* Milestone Sidebar - Responsive */}
-      <div className={`${teachingSession.active ? 'w-1/6' : 'w-1/4'} bg-gray-800 p-4 overflow-y-auto transition-all duration-300 ease-in-out`}>
-        <h3 className="text-lg font-semibold mb-4 text-white">Progress</h3>
-        <div className="space-y-2">
-          {questionSet.map((question, index) => (
-            <div
-              key={question.id}
-              className={`p-2 rounded-lg border-l-4 transition-all duration-200 ${
-                index < currentQuestionIndex
-                  ? 'bg-green-900/50 border-green-400 text-green-100'
-                  : index === currentQuestionIndex
-                  ? 'bg-blue-900/50 border-blue-400 text-blue-100'
-                  : 'bg-gray-700/50 border-gray-500 text-gray-300'
-              }`}
-            >
-              <div className="flex items-center space-x-2">
-                <div className={`w-2 h-2 rounded-full ${
+    <div className="w-full min-h-screen bg-gray-900 flex flex-col text-white">
+      {/* Top Section - Progress and Video Interface */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Milestone Sidebar - Responsive */}
+        <div className={`${teachingSession.active ? 'w-1/6' : 'w-1/4'} bg-gray-800 p-4 overflow-y-auto transition-all duration-300 ease-in-out`}>
+          <h3 className="text-lg font-semibold mb-4 text-white">Progress</h3>
+          <div className="space-y-2">
+            {questionSet.map((question, index) => (
+              <div
+                key={question.id}
+                className={`p-2 rounded-lg border-l-4 transition-all duration-200 ${
                   index < currentQuestionIndex
-                    ? 'bg-green-400'
+                    ? 'bg-green-900/50 border-green-400 text-green-100'
                     : index === currentQuestionIndex
-                    ? 'bg-blue-400'
-                    : 'bg-gray-500'
-                }`} />
-                <span className="text-xs font-medium">Q{index + 1}</span>
-                {question.type && (
-                  <span className="text-xs px-1.5 py-0.5 rounded bg-gray-600/50">
-                    {question.type}
-                  </span>
-                )}
+                    ? 'bg-blue-900/50 border-blue-400 text-blue-100'
+                    : 'bg-gray-700/50 border-gray-500 text-gray-300'
+                }`}
+              >
+                <div className="flex items-center space-x-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    index < currentQuestionIndex
+                      ? 'bg-green-400'
+                      : index === currentQuestionIndex
+                      ? 'bg-blue-400'
+                      : 'bg-gray-500'
+                  }`} />
+                  <span className="text-xs font-medium">Q{index + 1}</span>
+                  {question.type && (
+                    <span className="text-xs px-1.5 py-0.5 rounded bg-gray-600/50">
+                      {question.type}
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs mt-1 line-clamp-2 pl-4">{question.text}</p>
               </div>
-              <p className="text-xs mt-1 line-clamp-2 pl-4">{question.text}</p>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Main Content Area - Flexible width */}
-      <div className={`${teachingSession.active ? 'flex-1' : 'flex-1'} flex flex-col h-screen overflow-hidden transition-all duration-300 ease-in-out`}>
-        {/* Top Controls and Status */}
-        <div className="p-4 space-y-4">
-          {/* Control Buttons */}
-          <div className="flex justify-center space-x-4">
-            <Button
-              onClick={startInterview}
-              size="lg"
-              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center space-x-2"
-              disabled={!isInterviewActive}
-            >
-              <Play className="w-5 h-5" />
-              <span>Start Interview</span>
-            </Button>
-            <Button
-              onClick={endInterview}
-              size="lg"
-              variant="destructive"
-              className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center space-x-2"
-            >
-              <X className="w-5 h-5" />
-              <span>End Interview</span>
-            </Button>
+        {/* Main Content Area - Flexible width */}
+        <div className={`${teachingSession.active ? 'flex-1' : 'flex-1'} flex flex-col overflow-hidden transition-all duration-300 ease-in-out`}>
+          {/* Top Controls and Status */}
+          <div className="p-4 space-y-4">
+            {/* Control Buttons */}
+            <div className="flex justify-center space-x-4">
+              <Button
+                onClick={startInterview}
+                size="lg"
+                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center space-x-2"
+                disabled={!isInterviewActive}
+              >
+                <Play className="w-5 h-5" />
+                <span>Start Interview</span>
+              </Button>
+              <Button
+                onClick={endInterview}
+                size="lg"
+                variant="destructive"
+                className="bg-gradient-to-r from-red-600 to-pink-600 hover:from-red-700 hover:to-pink-700 text-white font-bold py-3 px-6 rounded-lg shadow-lg transform hover:scale-105 transition-all duration-200 flex items-center space-x-2"
+              >
+                <X className="w-5 h-5" />
+                <span>End Interview</span>
+              </Button>
+            </div>
+
+          {/* Status Display */}
+          <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
+            <div className="flex items-center justify-center space-x-3">
+              {interviewState === InterviewState.USER_LISTENING && (
+                <div className="flex items-center space-x-2 text-blue-400">
+                  <Mic className="animate-pulse w-5 h-5" />
+                  <span className="font-medium">Listening...</span>
+                </div>
+              )}
+              {interviewState === InterviewState.AI_THINKING && (
+                <div className="flex items-center space-x-2 text-yellow-400">
+                  <Brain className="animate-spin w-5 h-5" />
+                  <span className="font-medium">Processing...</span>
+                </div>
+              )}
+              {interviewState === InterviewState.AI_SPEAKING && (
+                <div className="flex items-center space-x-2 text-green-400">
+                  <div className="w-5 h-5 bg-green-400 rounded-full animate-pulse" />
+                  <span className="font-medium">Alex is speaking...</span>
+                </div>
+              )}
+            </div>
+
+            {/* User Input Display */}
+            {transcript && interviewState === InterviewState.USER_LISTENING && (
+              <div className="mt-4 bg-blue-900/30 rounded-lg p-3 border-l-4 border-blue-400">
+                <div className="flex items-start space-x-2">
+                  <span className="text-blue-400 font-medium text-sm">You:</span>
+                  <p className="text-white text-sm leading-relaxed flex-1">
+                    {transcript}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
           </div>
 
-        {/* Status Display */}
-        <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
-          <div className="flex items-center justify-center space-x-3">
-            {interviewState === InterviewState.USER_LISTENING && (
-              <div className="flex items-center space-x-2 text-blue-400">
-                <Mic className="animate-pulse w-5 h-5" />
-                <span className="font-medium">Listening...</span>
+          {/* Alex Display - Optimized for visibility */}
+          <div className="flex-1 p-4 flex flex-col">
+            <div className="relative w-full h-full bg-black rounded-xl overflow-hidden shadow-2xl">
+              <div className="absolute inset-0 bg-gradient-to-br from-purple-600 to-blue-600 opacity-75" />
+              <div className="relative h-full flex flex-col items-center justify-center p-6">
+                <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center mb-4">
+                  <div className="text-4xl">🤖</div>
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">Alex AI Coach</h3>
+                <p className="text-white/80 text-sm mb-8">Your Interview Assistant</p>
+                <div className="w-full max-w-2xl bg-black/50 rounded-lg p-4">
+                  <p className="text-white text-lg font-medium leading-relaxed">
+                    {displayedText || subtitle}
+                  </p>
+                </div>
               </div>
-            )}
-            {interviewState === InterviewState.AI_THINKING && (
-              <div className="flex items-center space-x-2 text-yellow-400">
-                <Brain className="animate-spin w-5 h-5" />
-                <span className="font-medium">Processing...</span>
-              </div>
-            )}
-            {interviewState === InterviewState.AI_SPEAKING && (
-              <div className="flex items-center space-x-2 text-green-400">
-                <div className="w-5 h-5 bg-green-400 rounded-full animate-pulse" />
-                <span className="font-medium">Alex is speaking...</span>
-              </div>
-            )}
+            </div>
           </div>
 
-          {/* User Input Display */}
-          {transcript && interviewState === InterviewState.USER_LISTENING && (
-            <div className="mt-4 bg-blue-900/30 rounded-lg p-3 border-l-4 border-blue-400">
-              <div className="flex items-start space-x-2">
-                <span className="text-blue-400 font-medium text-sm">You:</span>
-                <p className="text-white text-sm leading-relaxed flex-1">
-                  {transcript}
-                </p>
-              </div>
+          {/* Code Editor */}
+          {showCodeEditor && (
+            <div className="flex-1 overflow-hidden">
+              <CodeEditor onSubmitCode={handleCodeSubmission} />
             </div>
           )}
-        </div>
-        </div>
 
-        {/* Alex Display - Optimized for visibility */}
-        <div className="flex-1 p-4 flex flex-col">
-          <div className="relative w-full h-full bg-black rounded-xl overflow-hidden shadow-2xl">
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-600 to-blue-600 opacity-75" />
-            <div className="relative h-full flex flex-col items-center justify-center p-6">
-              <div className="w-24 h-24 bg-white/20 rounded-full flex items-center justify-center mb-4">
-                <div className="text-4xl">🤖</div>
-              </div>
-              <h3 className="text-xl font-bold text-white mb-2">Alex AI Coach</h3>
-              <p className="text-white/80 text-sm mb-8">Your Interview Assistant</p>
-              <div className="w-full max-w-2xl bg-black/50 rounded-lg p-4">
-                <p className="text-white text-lg font-medium leading-relaxed">
-                  {displayedText || subtitle}
-                </p>
-              </div>
-            </div>
-          </div>
+          {/* Audio Element */}
+          <audio
+            ref={audioRef}
+            src={audioUrl || undefined}
+            onEnded={handleAudioEnded}
+            autoPlay
+            hidden
+          />
         </div>
 
-        {/* Code Editor */}
-        {showCodeEditor && (
-          <div className="flex-1 overflow-hidden">
-            <CodeEditor onSubmitCode={handleCodeSubmission} />
-          </div>
-        )}
-
-        {/* Audio Element */}
-        <audio
-          ref={audioRef}
-          src={audioUrl || undefined}
-          onEnded={handleAudioEnded}
-          autoPlay
-          hidden
+        {/* Teaching Mode Panel */}
+        <TeachingMode
+          content={teachingSession.content}
+          onReady={handleTeachingReady}
+          isVisible={teachingSession.active}
         />
       </div>
 
-      {/* Teaching Mode Panel */}
-      <TeachingMode
-        content={teachingSession.content}
-        onReady={handleTeachingReady}
-        isVisible={teachingSession.active}
-      />
+      {/* AI Coach Feedback Panel - Shows below video interface */}
+      {!teachingSession.active && (interviewState === InterviewState.AI_SPEAKING || interviewState === InterviewState.USER_LISTENING || interviewState === InterviewState.AI_THINKING) && (
+        <div className="bg-gray-800 border-t border-gray-700 p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <Brain className="h-6 w-6 text-purple-400" />
+            <h3 className="text-lg font-semibold text-white">AI Coach Feedback</h3>
+          </div>
+          
+          <div className="grid grid-cols-4 gap-6">
+            <div className="bg-gray-700/50 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-purple-300 mb-3">Real-time Analysis</h4>
+              <p className="text-gray-300 text-sm leading-relaxed">
+                {interviewData.responses.length === 0 
+                  ? "Start answering questions to receive personalized feedback."
+                  : `Great progress! You've answered ${interviewData.responses.length} question${interviewData.responses.length > 1 ? 's' : ''}. Keep going!`
+                }
+              </p>
+            </div>
+            
+            <div className="bg-gray-700/50 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-blue-300 mb-3">Performance Metrics</h4>
+              <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 text-xs">Communication</span>
+                  <span className={`text-xs font-medium ${
+                    feedback.communication === 'Excellent' ? 'text-green-400' :
+                    feedback.communication === 'Good' ? 'text-blue-400' :
+                    feedback.communication === 'Developing' ? 'text-yellow-400' :
+                    'text-gray-400'
+                  }`}>
+                    {feedback.communication}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 text-xs">Technical Skills</span>
+                  <span className={`text-xs font-medium ${
+                    feedback.technicalSkills === 'Strong' ? 'text-green-400' :
+                    feedback.technicalSkills === 'Good' ? 'text-blue-400' :
+                    'text-gray-400'
+                  }`}>
+                    {feedback.technicalSkills}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-400 text-xs">Problem Solving</span>
+                  <span className={`text-xs font-medium ${
+                    feedback.problemSolving === 'Efficient' ? 'text-green-400' :
+                    feedback.problemSolving === 'Good' ? 'text-blue-400' :
+                    'text-gray-400'
+                  }`}>
+                    {feedback.problemSolving}
+                  </span>
+                </div>
+              </div>
+            </div>
+            
+            <div className="bg-gray-700/50 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-green-300 mb-3">Topic Focus</h4>
+              <p className="text-gray-300 text-sm leading-relaxed">
+                {topic === 'problem-solving-dsa' && 'Focus on algorithms and data structures.'}
+                {topic === 'reactjs-deep-dive' && 'Demonstrate React knowledge.'}
+                {topic === 'nextjs-fullstack' && 'Show full-stack understanding.'}
+                {topic === 'system-design-basics' && 'Explain system concepts.'}
+              </p>
+            </div>
+            
+            <div className="bg-gray-700/50 rounded-xl p-4">
+              <h4 className="text-sm font-medium text-cyan-300 mb-3">Session Stats</h4>
+              <div className="space-y-1 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-400 text-xs">Duration</span>
+                  <span className="text-white text-xs">
+                    {interviewData.startTime ? Math.floor((new Date().getTime() - interviewData.startTime.getTime()) / 60000) : 0} min
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400 text-xs">Questions</span>
+                  <span className="text-white text-xs">
+                    {currentQuestionIndex + 1}/{questionSet.length}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400 text-xs">Responses</span>
+                  <span className="text-white text-xs">{interviewData.responses.length}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Coach Feedback - Shows below when interview is completed */}
+      {interviewState === InterviewState.COMPLETED && (
+        <div className="bg-gray-800 border-t border-gray-700 p-6">
+          <div className="flex items-center gap-3 mb-6">
+            <Brain className="h-8 w-8 text-purple-400" />
+            <h2 className="text-2xl font-bold text-white">Interview Performance Analysis</h2>
+          </div>
+          
+          <div className="grid grid-cols-3 gap-6 mb-6">
+            <div className="bg-gray-700/50 rounded-xl p-6">
+              <h3 className="text-sm font-medium text-purple-300 mb-3">Communication</h3>
+              <p className="text-3xl font-bold text-white">{feedback.communication}</p>
+            </div>
+            <div className="bg-gray-700/50 rounded-xl p-6">
+              <h3 className="text-sm font-medium text-blue-300 mb-3">Technical Skills</h3>
+              <p className="text-3xl font-bold text-white">{feedback.technicalSkills}</p>
+            </div>
+            <div className="bg-gray-700/50 rounded-xl p-6">
+              <h3 className="text-sm font-medium text-green-300 mb-3">Problem Solving</h3>
+              <p className="text-3xl font-bold text-white">{feedback.problemSolving}</p>
+            </div>
+          </div>
+          
+          <div className="bg-gray-700/50 rounded-xl p-6">
+            <h3 className="text-lg font-medium text-yellow-300 mb-4">Improvement Suggestions</h3>
+            <ul className="space-y-3">
+              {feedback.suggestions.map((suggestion, index) => (
+                <li key={index} className="flex items-start gap-3 text-gray-300">
+                  <CheckCircle className="h-6 w-6 text-green-400 flex-shrink-0 mt-0.5" />
+                  <span className="text-base">{suggestion}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
