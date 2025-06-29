@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cleanTextForTTS } from '@/lib/utils/text-processor';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,12 +10,9 @@ export async function GET(request: NextRequest) {
     return new Response('Expected websocket', { status: 426 });
   }
 
-  // For Next.js API routes, we need to handle WebSocket differently
-  // This is a simplified approach for demonstration
   return new Response('WebSocket upgrade not supported in this environment', { status: 501 });
 }
 
-// Alternative HTTP-based streaming approach
 export async function POST(request: NextRequest) {
   try {
     const { text } = await request.json();
@@ -26,7 +24,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'ElevenLabs API key or voice ID not configured' }, { status: 500 });
     }
 
-    // Call ElevenLabs TTS API directly
+    // Clean text for better TTS quality
+    const cleanedText = cleanTextForTTS(text);
+    console.log('🎵 Original text:', text);
+    console.log('🎵 Cleaned text:', cleanedText);
+
+    // Call ElevenLabs TTS API with optimized settings
     const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
@@ -35,12 +38,15 @@ export async function POST(request: NextRequest) {
         'xi-api-key': apiKey
       },
       body: JSON.stringify({
-        text: text,
-        model_id: 'eleven_monolingual_v1',
+        text: cleanedText,
+        model_id: 'eleven_turbo_v2', // Faster model for reduced latency
         voice_settings: {
-          stability: 0.5,
-          similarity_boost: 0.5
-        }
+          stability: 0.6,
+          similarity_boost: 0.8,
+          style: 0.2,
+          use_speaker_boost: true
+        },
+        output_format: 'mp3_44100_128' // Optimized format for faster streaming
       })
     });
 

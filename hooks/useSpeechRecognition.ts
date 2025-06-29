@@ -30,46 +30,53 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
         recognitionRef.current = new SpeechRecognition();
         
         const recognition = recognitionRef.current;
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-        recognition.maxAlternatives = 1;
+        if (recognition) {
+          recognition.continuous = true;
+          recognition.interimResults = true;
+          recognition.lang = 'en-US';
+          recognition.maxAlternatives = 1;
 
-        recognition.onstart = () => {
-          setIsListening(true);
-        };
+          recognition.onstart = () => {
+            setIsListening(true);
+          };
 
-        recognition.onend = () => {
-          setIsListening(false);
-        };
+          recognition.onend = () => {
+            setIsListening(false);
+          };
 
-        recognition.onerror = (event) => {
-          console.error('Speech recognition error:', event.error);
-          setIsListening(false);
-        };
-
-        recognition.onresult = (event) => {
-          let interimTranscript = '';
-          let finalTranscript = '';
-
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            const result = event.results[i];
-            const transcript = result[0].transcript;
-            
-            if (result.isFinal) {
-              finalTranscript += transcript + ' ';
-              setConfidence(result[0].confidence);
+          recognition.onerror = (event) => {
+            // Handle "no-speech" error gracefully - it's normal when user is silent
+            if (event.error === 'no-speech') {
+              console.log('Speech recognition: No speech detected (normal)');
             } else {
-              interimTranscript += transcript;
+              console.error('Speech recognition error:', event.error);
             }
-          }
+            setIsListening(false);
+          };
 
-          if (finalTranscript) {
-            setTranscript(prev => prev + finalTranscript);
-          }
-          
-          interimTranscriptRef.current = interimTranscript;
-        };
+          recognition.onresult = (event) => {
+            let interimTranscript = '';
+            let finalTranscript = '';
+
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+              const result = event.results[i];
+              const transcript = result[0].transcript;
+              
+              if (result.isFinal) {
+                finalTranscript += transcript + ' ';
+                setConfidence(result[0].confidence);
+              } else {
+                interimTranscript += transcript;
+              }
+            }
+
+            if (finalTranscript) {
+              setTranscript(prev => prev + finalTranscript);
+            }
+            
+            interimTranscriptRef.current = interimTranscript;
+          };
+        }
       }
     }
 
@@ -81,20 +88,76 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
   }, []);
 
   const startListening = useCallback(() => {
-    if (recognitionRef.current && !isListening) {
+    if (!isListening) {
       try {
-        recognitionRef.current.start();
+        // Create new instance to avoid state conflicts
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+          recognitionRef.current = new SpeechRecognition();
+          
+          const recognition = recognitionRef.current;
+          if (recognition) {
+            // Set up event handlers for new instance
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+            recognition.maxAlternatives = 1;
+
+            recognition.onstart = () => setIsListening(true);
+            recognition.onend = () => setIsListening(false);
+            recognition.onerror = (event) => {
+              // Handle "no-speech" error gracefully - it's normal when user is silent
+              if (event.error === 'no-speech') {
+                console.log('Speech recognition: No speech detected (normal)');
+              } else {
+                console.error('Speech recognition error:', event.error);
+              }
+              setIsListening(false);
+            };
+            recognition.onresult = (event) => {
+              let interimTranscript = '';
+              let finalTranscript = '';
+
+              for (let i = event.resultIndex; i < event.results.length; i++) {
+                const result = event.results[i];
+                const transcript = result[0].transcript;
+                
+                if (result.isFinal) {
+                  finalTranscript += transcript + ' ';
+                  setConfidence(result[0].confidence);
+                } else {
+                  interimTranscript += transcript;
+                }
+              }
+
+              if (finalTranscript) {
+                setTranscript(prev => prev + finalTranscript);
+              }
+              
+              interimTranscriptRef.current = interimTranscript;
+            };
+
+            // Start new instance
+            recognition.start();
+          }
+        }
       } catch (error) {
         console.error('Error starting speech recognition:', error);
+        setIsListening(false);
       }
     }
   }, [isListening]);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListening) {
-      recognitionRef.current.stop();
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.stop();
+      } catch (error) {
+        console.error('Error stopping speech recognition:', error);
+      }
+      setIsListening(false);
     }
-  }, [isListening]);
+  }, []);
 
   const resetTranscript = useCallback(() => {
     setTranscript('');
@@ -116,8 +179,8 @@ export function useSpeechRecognition(): UseSpeechRecognitionReturn {
 // Extend the Window interface to include speech recognition
 declare global {
   interface Window {
-    SpeechRecognition: typeof SpeechRecognition;
-    webkitSpeechRecognition: typeof SpeechRecognition;
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
   }
 }
 

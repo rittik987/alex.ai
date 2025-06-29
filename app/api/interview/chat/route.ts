@@ -10,13 +10,32 @@ export const dynamic = 'force-dynamic';
 // ===================================================================
 interface ChatRequest {
   topic: string;
-  history: Array<{
+  history?: Array<{
     id: string;
     content: string;
     sender: 'user' | 'ai';
     timestamp: Date;
   }>;
   currentQuestionIndex: number;
+  userInput?: string;
+  code?: string;
+  language?: string;
+  isCodeSubmission?: boolean;
+  questionType?: string;
+  isTeachingRequest?: boolean;
+  questionText?: string;
+}
+
+interface ConversationMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  questionIndex: number;
+}
+
+// Extend global to include conversation history
+declare global {
+  var conversationHistory: ConversationMessage[] | undefined;
 }
 
 interface Question {
@@ -54,9 +73,16 @@ export async function POST(request: NextRequest) {
     console.log('🎯 Chat API: Received request');
     
     const body: ChatRequest = await request.json();
-    const { topic, history, currentQuestionIndex } = body;
+    const { topic, history = [], currentQuestionIndex } = body;
     
-    console.log('📝 Chat API: Request data:', { topic, historyLength: history.length, currentQuestionIndex });
+    console.log('📝 Chat API: Request data:', { 
+      topic, 
+      historyLength: history.length, 
+      currentQuestionIndex,
+      isTeachingRequest: body.isTeachingRequest,
+      isCodeSubmission: body.isCodeSubmission,
+      userInput: body.userInput ? 'present' : 'not present'
+    });
 
     const cookieStore = await cookies();
     const supabase = createServerClient(
@@ -106,20 +132,55 @@ export async function POST(request: NextRequest) {
       questionSet = FALLBACK_QUESTION_SETS[topic] || FALLBACK_QUESTION_SETS['problem-solving-dsa'];
     }
 
-    // --- Initial Request Logic (as before) ---
-    if (history.length === 0) {
+    // Get current question first
+    const currentQuestion = questionSet.questions[currentQuestionIndex];
+    if (!currentQuestion) {
+      return NextResponse.json({ error: 'Invalid question index' }, { status: 400 });
+    }
+
+    // Check if this is a teaching request FIRST
+    if (body.isTeachingRequest) {
+      console.log('🎓 Processing teaching request for question:', currentQuestion);
+      const teachingContent = await generateTeachingContent(currentQuestion, topic);
+      console.log('🎓 Generated teaching content:', teachingContent);
+      return NextResponse.json({
+        teachingContent: teachingContent.content,
+        modelAnswer: teachingContent.modelAnswer
+      });
+    }
+
+    // --- Initial Request Logic ---
+    if (!body.userInput && !body.isCodeSubmission) {
       const firstQuestion = questionSet.questions[0];
       return NextResponse.json({
         aiResponse: firstQuestion.text,
-        isSufficient: false,
-        nextQuestion: null,
+        moveToNext: false,
+        nextQuestionType: firstQuestion.type,
         questionSet: questionSet.questions,
         currentQuestionIndex: 0
       });
     }
 
-    // --- Main Logic: Call the Live Gemini AI ---
-    return await processUserResponseWithGemini(questionSet, currentQuestionIndex, history, profile);
+    // Check if this is a code submission
+    if (body.isCodeSubmission) {
+      if (currentQuestion.type !== 'coding') {
+        return NextResponse.json({ error: 'Current question is not a coding question' }, { status: 400 });
+      }
+
+      // Process code submission
+      const response = await processCodeSubmission(body.code!, body.language!, currentQuestion);
+      return NextResponse.json({
+        aiResponse: response.feedback,
+        moveToNext: response.isCorrect,
+        nextQuestionType: currentQuestionIndex + 1 < questionSet.questions.length 
+          ? questionSet.questions[currentQuestionIndex + 1].type 
+          : null,
+        currentQuestionIndex: response.isCorrect ? currentQuestionIndex + 1 : currentQuestionIndex
+      });
+    }
+
+    // --- Main Logic: Process user's verbal response ---
+    return await processUserResponseWithGemini(questionSet, currentQuestionIndex, currentQuestion, body.userInput!, profile);
 
   } catch (error) {
     console.error('💥 Chat API: UNEXPECTED TOP-LEVEL ERROR:', error);
@@ -128,28 +189,236 @@ export async function POST(request: NextRequest) {
 }
 
 // ===================================================================
+// TEACHING CONTENT GENERATION
+// ===================================================================
+async function generateTeachingContent(question: Question, topic: string) {
+  console.log('🎓 Generating teaching content for:', { question: question.text, topic });
+  
+  const teachingPrompt = `You are Alex, an expert technical interviewer and teacher. A candidate has asked for help with this interview question: "${question.text}"
+
+  Create a comprehensive teaching response that includes:
+  
+  1. A clear explanation of the concept/problem
+  2. Step-by-step breakdown of how to approach it
+  3. Key points to include in the answer
+  4. Common mistakes to avoid
+  5. A model answer they can use as reference
+  
+  Format your response in markdown, but avoid using bullet points (use natural paragraphs instead).
+  For code examples, use proper markdown code blocks with language specification.
+  
+  Keep your explanation clear, concise, and focused on helping the candidate understand both the WHAT and the WHY.
+  
+  End your teaching content with a model answer that the candidate can use as reference.`;
+
+  try {
+    console.log('🎓 Calling Gemini API for teaching content...');
+    const apiKey = process.env.GEMINI_API_KEY;
+    
+    if (!apiKey) {
+      console.error('🎓 GEMINI_API_KEY not found in environment');
+      throw new Error('API key not configured');
+    }
+    
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+    const payload = {
+      contents: [{
+        role: "user",
+        parts: [{ text: teachingPrompt }]
+      }]
+    };
+
+    console.log('🎓 Sending request to Gemini...');
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    console.log('🎓 Gemini response status:', response.status);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('🎓 Gemini API error:', errorText);
+      throw new Error(`Failed to generate teaching content: ${response.status} - ${errorText}`);
+    }
+
+    const result = await response.json();
+    console.log('🎓 Gemini response received, processing content...');
+    
+    if (!result.candidates || !result.candidates[0] || !result.candidates[0].content) {
+      console.error('🎓 Invalid Gemini response structure:', result);
+      throw new Error('Invalid response structure from Gemini API');
+    }
+    
+    const content = result.candidates[0].content.parts[0].text;
+    console.log('🎓 Raw content length:', content.length);
+
+    // Extract model answer from the content (everything after "Model Answer:")
+    const modelAnswerMatch = content.match(/Model Answer:[\s\S]*$/i);
+    const modelAnswer = modelAnswerMatch ? modelAnswerMatch[0].replace(/Model Answer:/i, '').trim() : '';
+
+    // Remove model answer from the teaching content
+    const teachingContent = content.replace(/Model Answer:[\s\S]*$/i, '').trim();
+
+    console.log('🎓 Teaching content processed:', {
+      contentLength: teachingContent.length,
+      modelAnswerLength: modelAnswer.length
+    });
+
+    return {
+      content: teachingContent,
+      modelAnswer
+    };
+  } catch (error) {
+    console.error('🎓 Failed to generate teaching content:', error);
+    return {
+      content: `# Understanding the Question
+
+This is a fundamental interview question that helps the interviewer understand your background and assess your communication skills.
+
+## How to Approach This Question
+
+When answering "Tell me about yourself," structure your response to cover these key areas:
+
+**Personal Introduction**: Start with your name and current role or status.
+
+**Educational Background**: Mention your degree, university, and any relevant coursework.
+
+**Technical Skills**: Highlight your programming languages, frameworks, and technologies you're proficient in.
+
+**Project Experience**: Describe 1-2 significant projects you've worked on, including the technologies used and key features.
+
+**Career Goals**: Share your short-term and long-term professional objectives.
+
+## Key Points to Remember
+
+Keep your answer concise but comprehensive, typically 2-3 minutes long. Focus on professional aspects rather than personal details. Use specific examples and avoid being too generic.
+
+## Model Answer
+
+"Hi, I'm [Your Name], a [Degree] graduate from [University]. I specialize in [Technologies] and have hands-on experience building applications using [Frameworks]. I've developed several projects including [Project 1] which features [key features] and [Project 2] that demonstrates [skills]. My goal is to [short-term goal] and eventually [long-term goal]. I'm particularly interested in [specific area] and excited about opportunities to [relevant aspiration]."`,
+      modelAnswer: 'Hi, I\'m [Your Name], a [Degree] graduate from [University]. I specialize in [Technologies] and have hands-on experience building applications using [Frameworks]. I\'ve developed several projects including [Project 1] which features [key features] and [Project 2] that demonstrates [skills]. My goal is to [short-term goal] and eventually [long-term goal].'
+    };
+  }
+}
+
+// ===================================================================
+// CODE SUBMISSION PROCESSING
+// ===================================================================
+async function processCodeSubmission(code: string, language: string, question: Question) {
+  console.log('💻 Processing code submission:', { language, codeLength: code.length });
+  
+  // Simple code evaluation logic - in a real system, you'd run the code in a sandbox
+  const feedback = await evaluateCode(code, language, question);
+  
+  return {
+    feedback: feedback.message,
+    isCorrect: feedback.isCorrect
+  };
+}
+
+async function evaluateCode(code: string, language: string, question: Question) {
+  // For now, we'll use a simple heuristic to evaluate the code
+  // In a real system, you'd execute the code in a secure sandbox
+  
+  const codeLines = code.trim().split('\n').length;
+  const hasFunction = code.includes('function') || code.includes('def ') || code.includes('public ');
+  const hasLoop = code.includes('for') || code.includes('while');
+  const hasReturn = code.includes('return');
+  
+  // Basic scoring
+  let score = 0;
+  if (hasFunction) score += 30;
+  if (hasLoop) score += 20;
+  if (hasReturn) score += 20;
+  if (codeLines > 5) score += 15;
+  if (code.includes('map') || code.includes('HashMap') || code.includes('dict')) score += 15;
+  
+  const isCorrect = score >= 60;
+  
+  if (isCorrect) {
+    return {
+      isCorrect: true,
+      message: "Great solution! Your code demonstrates good understanding of the problem. The logic looks solid and you've used appropriate data structures. Let's move on to the next question."
+    };
+  } else {
+    return {
+      isCorrect: false,
+      message: "I can see you're on the right track, but let me give you a hint: consider using a hash map to store the numbers you've seen and their indices. This will allow you to find the complement in O(1) time. Try implementing this approach and submit again."
+    };
+  }
+}
+
+// ===================================================================
 // GEMINI AI INTEGRATION
 // ===================================================================
 async function processUserResponseWithGemini(
   questionSet: QuestionSet, 
-  currentQuestionIndex: number, 
-  history: any[], 
+  currentQuestionIndex: number,
+  currentQuestion: Question,
+  userInput: string,
   profile: any
 ) {
   console.log('🧠 Alex AI Coach: Calling Gemini Pro...');
   
-  const currentQuestion = questionSet.questions[currentQuestionIndex];
+  // Get conversation history from global storage
+  const conversationHistory: ConversationMessage[] = global.conversationHistory || [];
+  
+  // Add current user input to history
+  conversationHistory.push({
+    role: 'user',
+    content: userInput,
+    timestamp: Date.now(),
+    questionIndex: currentQuestionIndex
+  });
+  
+  // Keep only last 20 messages to manage context size
+  if (conversationHistory.length > 20) {
+    conversationHistory.splice(0, conversationHistory.length - 20);
+  }
+  
+  // Store updated history globally
+  global.conversationHistory = conversationHistory;
   
   // 1. Construct the detailed System Prompt for Alex
-  const systemPrompt = `You are Alex, an elite AI interview coach with deep expertise in technical interviews, behavioral assessments, and professional development. Your mission is to help candidates excel through intelligent analysis and constructive feedback.
+  const systemPrompt = `You are Alex, an elite AI interview coach with deep expertise in technical interviews. Your mission is to help candidates excel through intelligent analysis and constructive feedback.
 
   **CORE DIRECTIVES:**
-  1.  **Analyze and Coach:** Your primary function is to analyze the user's response to the current interview question and provide coaching.
-  2.  **Guided Improvement:** If a response is weak, short, or generic (like 'I am Rittik'), you MUST ask guiding follow-up questions. Nudge them to include specifics like education, skills, projects, and goals. For behavioral questions, guide them towards the STAR method (Situation, Task, Action, Result).
-  3.  **Strict Progression:** Only after the user's answer is strong and comprehensive, or after 2-3 coaching attempts, should you conclude your response with the EXACT phrase: "Great, that's a much stronger answer. Let's move on."
-  4.  **Stay in Character:** Maintain a professional, encouraging, yet firm tone. Address the user by name if available.
-  5.  **Brevity Mandate:** Your responses must be concise and to the point, ideally under 100 words. Focus on the single most important piece of feedback.
-  6.  **No Off-Topic Chat:** If the user asks something unrelated to the interview, politely steer them back on topic.`;
+
+  1. **Answer Completeness Checking for "Tell me about yourself":**
+     A complete answer MUST include these components with sufficient detail:
+     - Introduction & Name
+     - Education Background (degree, university)
+     - Technical Skills (programming languages, frameworks)
+     - Project Experience (at least 1-2 specific projects with details)
+     - Career Goals (short-term and long-term)
+
+  2. **Response Analysis Rules:**
+     - When ALL components are present with good detail, respond: "Excellent answer! You've covered everything well - your background, skills, projects, and goals. Let's move on to the next question."
+     - If missing components, specifically ask for ONLY the missing parts
+     - If answer has good content but speech recognition errors, say: "I understood you mentioned [summarize key points], but some words weren't clear. Could you briefly clarify [specific unclear part]?"
+
+  3. **Project Details Recognition:**
+     Consider a project well-explained if it includes:
+     - Project name/type
+     - Technologies used
+     - Key features/functionality
+     
+  4. **Example of Complete Answer:**
+     "Hi, I'm [Name], a [Degree] graduate from [University]. I specialize in [Technologies] and have built several projects including [Project 1 with 2-3 features] and [Project 2 with 2-3 features]. My goal is to [Short-term goal] and eventually [Long-term goal]."
+
+  5. **Speech Recognition Error Handling:**
+     - Focus on the overall meaning rather than exact wording
+     - If key information is present but worded differently, consider it valid
+     - Only ask for clarification if crucial information is unclear
+
+  6. **Question Progression:**
+     - Move to next question IMMEDIATELY when answer meets completeness criteria
+     - Don't ask for additional details if all components are adequately covered
+     - Use EXACTLY "Let's move on to the next question" to signal completion
+     - Avoid using bullet points or markdown formatting in responses - speak naturally`;
 
   // 2. Construct the final prompt for the Gemini API
   const finalPrompt = `
@@ -158,10 +427,22 @@ async function processUserResponseWithGemini(
 
     ---
     **Context for your Analysis:**
-    - Candidate Name: ${profile?.full_name || 'Candidate'}
-    - Candidate Profile: ${JSON.stringify(profile)}
-    - Current Interview Question: "${currentQuestion.text}"
-    - Conversation History (last 4 messages): ${history.slice(-4).map(msg => `${msg.sender}: ${msg.content}`).join('\n')}
+    - Current Question: "${currentQuestion.text}"
+    - Question Type: ${currentQuestion.type}
+    - Question Number: ${currentQuestionIndex + 1} of ${questionSet.questions.length}
+    - Current User Response: "${userInput}"
+    - Previous Conversation History: ${conversationHistory.slice(-6).map((msg: ConversationMessage) => `${msg.role}: ${msg.content}`).join('\n')}
+    
+    **Special Instructions for Current Question:**
+    ${currentQuestion.type === 'behavioral' ? `
+    This is a behavioral question. For "Tell me about yourself" type questions:
+    - Analyze what components the user has provided across ALL their responses
+    - Check for: Name, Education, Skills, Projects/Experience, Career Goals
+    - Acknowledge what they've shared and guide them to add missing components
+    - Only move to next question when answer is comprehensive with all key components
+    ` : `
+    This is a ${currentQuestion.type} question. Provide focused feedback and coaching.
+    `}
 
     ---
     **Your Task:**
@@ -207,24 +488,81 @@ async function processUserResponseWithGemini(
     console.log('🤖 Alex coaching response generated:', aiResponseText);
 
     // 4. Process the AI response to determine next steps
-    const isSufficient = aiResponseText.toLowerCase().includes("let's move on");
-    let nextQuestion = null;
+    const moveToNext = aiResponseText.toLowerCase().includes("let's move on to the next question");
     let newIndex = currentQuestionIndex;
 
-    if (isSufficient) {
-      newIndex++;
-      if (newIndex < questionSet.questions.length) {
-        nextQuestion = questionSet.questions[newIndex];
-        console.log('➡️ Moving to next question:', nextQuestion);
+    // Check if this is a behavioral question
+    const isBehavioral = currentQuestion.type === 'behavioral';
+    
+    // For behavioral questions, check if answer is complete
+    if (isBehavioral) {
+      // Extract key components from conversation history
+      const allResponses = conversationHistory
+        .filter(msg => msg.role === 'user' && msg.questionIndex === currentQuestionIndex)
+        .map(msg => msg.content)
+        .join(' ');
+
+      // Check for required components with improved regex patterns
+      const hasName = /my name|i'?m\s+[a-z]+|name\s+is\s+[a-z]+|hi,?\s+i'?m\s+[a-z]+|hello,?\s+i'?m\s+[a-z]+/i.test(allResponses);
+      const hasEducation = /graduate|degree|university|bca|b\.?tech|college|education|studied/i.test(allResponses);
+      const hasSkills = /javascript|python|react|next\.?js|sql|programming|languages|frameworks|skills|specialize/i.test(allResponses);
+      const hasProjects = /project|built|created|developed|e-?commerce|website|system|application|app/i.test(allResponses);
+      const hasGoals = /goal|aim|aspire|plan|career|future|join|company|start|firm/i.test(allResponses);
+
+      const isComplete = hasName && hasEducation && hasSkills && hasProjects && hasGoals;
+      
+      console.log('Answer completeness check:', {
+        hasName,
+        hasEducation,
+        hasSkills,
+        hasProjects,
+        hasGoals,
+        isComplete,
+        moveToNext
+      });
+
+      // Only move to next question if answer is complete and AI signals to move on
+      if (isComplete && moveToNext) {
+        newIndex++;
+        console.log('➡️ Moving to next question, new index:', newIndex);
+        // Clear conversation history when moving to next question
+        global.conversationHistory = [];
       } else {
-        console.log('🎉 Interview completed!');
+        // Add AI response to conversation history
+        conversationHistory.push({
+          role: 'assistant',
+          content: aiResponseText,
+          timestamp: Date.now(),
+          questionIndex: currentQuestionIndex
+        });
+        global.conversationHistory = conversationHistory;
+      }
+    } else {
+      // For non-behavioral questions, follow AI's signal to move on
+      if (moveToNext) {
+        newIndex++;
+        console.log('➡️ Moving to next question, new index:', newIndex);
+        global.conversationHistory = [];
+      } else {
+        conversationHistory.push({
+          role: 'assistant',
+          content: aiResponseText,
+          timestamp: Date.now(),
+          questionIndex: currentQuestionIndex
+        });
+        global.conversationHistory = conversationHistory;
       }
     }
     
+    // Determine next question type
+    const nextQuestionType = newIndex < questionSet.questions.length 
+      ? questionSet.questions[newIndex].type 
+      : null;
+
     return NextResponse.json({
       aiResponse: aiResponseText,
-      isSufficient,
-      nextQuestion,
+      moveToNext: newIndex > currentQuestionIndex,
+      nextQuestionType,
       currentQuestionIndex: newIndex
     });
 
@@ -232,8 +570,8 @@ async function processUserResponseWithGemini(
     console.error('💥 Gemini AI processing error:', aiError);
     return NextResponse.json({
       aiResponse: "I'm having a brief technical moment, but let's not lose momentum. Could you elaborate on that a bit more?",
-      isSufficient: false,
-      nextQuestion: null,
+      moveToNext: false,
+      nextQuestionType: null,
       currentQuestionIndex
     });
   }
