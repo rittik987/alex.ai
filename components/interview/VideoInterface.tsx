@@ -477,33 +477,46 @@ export default function VideoInterface({ topic }: { topic: string }) {
 
   // Monitor transcript changes and speech recognition state
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout | null = null;
+    console.log('Speech state changed:', { 
+      transcript: transcript.trim(), 
+      isListening, 
+      interviewState,
+      lastTranscript: lastTranscriptRef.current 
+    });
 
-    const handleSpeechEnd = () => {
-      if (transcript.trim() && transcript !== lastTranscriptRef.current) {
-        console.log('Processing response after speech end:', transcript);
+    // Only process when we're in listening state and have new transcript
+    if (interviewState === InterviewState.USER_LISTENING && transcript.trim()) {
+      // Clear any existing timeout
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+
+      // If speech recognition stopped and we have new content, process immediately
+      if (!isListening && transcript !== lastTranscriptRef.current) {
+        console.log('Speech ended, processing transcript:', transcript);
         lastTranscriptRef.current = transcript;
         processUserResponse(transcript);
+        return;
       }
-    };
 
-    if (interviewState === InterviewState.USER_LISTENING) {
-      if (!isListening && transcript.trim()) {
-        // User stopped speaking - process after a short delay
-        timeoutId = setTimeout(handleSpeechEnd, 1000);
-      } else if (isListening && transcript.trim()) {
-        // Clear any existing timeout while user is still speaking
-        if (silenceTimeoutRef.current) {
-          clearTimeout(silenceTimeoutRef.current);
-        }
-        // Set new silence detection timeout
-        silenceTimeoutRef.current = setTimeout(handleSpeechEnd, 2000);
+      // If still listening, set a timeout to process after silence
+      if (isListening) {
+        silenceTimeoutRef.current = setTimeout(() => {
+          if (transcript.trim() && transcript !== lastTranscriptRef.current) {
+            console.log('Silence timeout, processing transcript:', transcript);
+            lastTranscriptRef.current = transcript;
+            processUserResponse(transcript);
+          }
+        }, 3000); // 3 second silence timeout
       }
     }
 
     return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      if (silenceTimeoutRef.current) clearTimeout(silenceTimeoutRef.current);
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
     };
   }, [transcript, isListening, interviewState]);
 

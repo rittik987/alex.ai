@@ -42,9 +42,13 @@ import {
   CheckCircle2,
   Timer,
   Trophy,
-  Sparkles
+  Sparkles,
+  Crown,
+  Settings
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
+import { useSubscription } from '@/lib/revenuecat/provider';
+import { UsageIndicator } from '@/components/subscription/UsageIndicator';
 import type { User } from '@supabase/supabase-js';
 import type { Profile } from '@/lib/supabase/auth';
 import DashboardSkeleton from './DashboardSkeleton';
@@ -168,6 +172,7 @@ const whyChooseUs = [
 
 export default function DashboardClient({ user, profile }: DashboardClientProps) {
   const { signOut } = useAuth();
+  const { subscription } = useSubscription();
   const router = useRouter();
   const [showTopicModal, setShowTopicModal] = useState(false);
   const [selectedMode, setSelectedMode] = useState<'chat' | 'video' | null>(null);
@@ -348,6 +353,29 @@ export default function DashboardClient({ user, profile }: DashboardClientProps)
             </div>
           </div>
           <div className="flex items-center space-x-3">
+            {/* Subscription Status */}
+            {subscription && (
+              <Button
+                variant="outline"
+                onClick={() => router.push('/subscription')}
+                className={`border-gray-600 text-gray-300 hover:bg-gray-800 ${
+                  subscription.plan !== 'free' ? 'border-purple-500/50 text-purple-300' : ''
+                }`}
+              >
+                {subscription.plan === 'free' ? (
+                  <>
+                    <Crown className="h-4 w-4 mr-2" />
+                    Upgrade Plan
+                  </>
+                ) : (
+                  <>
+                    <Crown className="h-4 w-4 mr-2" />
+                    {subscription.plan.charAt(0).toUpperCase() + subscription.plan.slice(1)} Plan
+                  </>
+                )}
+              </Button>
+            )}
+            
             <Button 
               variant="outline" 
               onClick={() => setShowSignOutModal(true)} 
@@ -610,6 +638,11 @@ export default function DashboardClient({ user, profile }: DashboardClientProps)
 
           {/* Interview Readiness Sidebar */}
           <div className="space-y-6">
+            {/* Subscription Usage Indicator */}
+            {subscription && subscription.plan === 'free' && (
+              <UsageIndicator />
+            )}
+
             <Card className="bg-gray-800/50 border-gray-700 p-6">
               <h3 className="text-lg font-semibold text-white mb-4">Interview Readiness</h3>
               <div className="space-y-4">

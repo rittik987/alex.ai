@@ -568,11 +568,54 @@ async function processUserResponseWithGemini(
 
   } catch (aiError) {
     console.error('💥 Gemini AI processing error:', aiError);
+    
+    // Provide intelligent fallback responses based on question type and user input
+    let fallbackResponse = "";
+    
+    if (currentQuestion.type === 'behavioral') {
+      if (currentQuestion.text.toLowerCase().includes('tell me about yourself')) {
+        // Analyze user input for completeness
+        const input = userInput.toLowerCase();
+        const hasName = /my name|i'm|name is|hi|hello/.test(input);
+        const hasEducation = /graduate|degree|university|college|studied|education/.test(input);
+        const hasSkills = /javascript|python|react|programming|skills|languages/.test(input);
+        const hasProjects = /project|built|created|developed|website|app/.test(input);
+        const hasGoals = /goal|aim|career|future|plan/.test(input);
+        
+        const missingComponents = [];
+        if (!hasName) missingComponents.push("introduction");
+        if (!hasEducation) missingComponents.push("educational background");
+        if (!hasSkills) missingComponents.push("technical skills");
+        if (!hasProjects) missingComponents.push("project experience");
+        if (!hasGoals) missingComponents.push("career goals");
+        
+        if (missingComponents.length === 0) {
+          fallbackResponse = "Excellent! You've covered all the key points - your background, skills, projects, and goals. Let's move on to the next question.";
+        } else if (missingComponents.length <= 2) {
+          fallbackResponse = `Great start! Could you also tell me about your ${missingComponents.join(' and ')}?`;
+        } else {
+          fallbackResponse = "That's a good beginning! Could you tell me more about your educational background, technical skills, and any projects you've worked on?";
+        }
+      } else {
+        fallbackResponse = "That's a thoughtful response. Could you provide a specific example to illustrate your point?";
+      }
+    } else if (currentQuestion.type === 'coding') {
+      fallbackResponse = "Interesting approach! Could you walk me through your thought process and explain how you would implement this solution?";
+    } else {
+      fallbackResponse = "Thank you for that response. Could you elaborate a bit more on that point?";
+    }
+    
+    // Check if we should move to next question (only for complete behavioral answers)
+    const shouldMoveNext = currentQuestion.type === 'behavioral' && 
+                          fallbackResponse.includes("Let's move on to the next question");
+    
     return NextResponse.json({
-      aiResponse: "I'm having a brief technical moment, but let's not lose momentum. Could you elaborate on that a bit more?",
-      moveToNext: false,
-      nextQuestionType: null,
-      currentQuestionIndex
+      aiResponse: fallbackResponse,
+      moveToNext: shouldMoveNext,
+      nextQuestionType: shouldMoveNext && currentQuestionIndex + 1 < questionSet.questions.length 
+        ? questionSet.questions[currentQuestionIndex + 1].type 
+        : null,
+      currentQuestionIndex: shouldMoveNext ? currentQuestionIndex + 1 : currentQuestionIndex
     });
   }
 }

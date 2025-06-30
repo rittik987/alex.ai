@@ -11,6 +11,9 @@ import { TeachingMode } from './TeachingMode';
 import CodeEditor from './CodeEditor';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { useSubscription } from '@/lib/revenuecat/provider';
+import { UpgradeModal } from '@/components/subscription/UpgradeModal';
+import { UsageIndicator } from '@/components/subscription/UsageIndicator';
 
 interface Message {
   id: string;
@@ -71,26 +74,123 @@ export default function ChatInterface({ topic = 'problem-solving-dsa' }: ChatInt
     endTime: null as Date | null,
     questionsAnswered: 0
   });
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [interviewTimeElapsed, setInterviewTimeElapsed] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Subscription hooks
+  const { subscription, purchaseSubscription } = useSubscription();
+  const isFreeTier = subscription?.plan === 'free';
+  const remainingMinutes = subscription ? Math.max(0, 10 - (subscription.minutesUsed || 0)) : 0;
+  const hasReachedLimit = isFreeTier && remainingMinutes <= 0;
+  const canStartInterview = !hasReachedLimit;
+
+  // Track interview time
+  const trackInterviewTime = async (minutes: number) => {
+    try {
+      await fetch('/api/subscription/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ minutes: (subscription?.minutesUsed || 0) + minutes }),
+      });
+    } catch (error) {
+      console.error('Failed to track interview time:', error);
+    }
+  };
 
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const endInterview = async () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+    }
+
+    setInterviewState(InterviewState.COMPLETED);
+    
+    const endTime = new Date();
+    setInterviewData(prev => ({
+      ...prev,
+      endTime
+    }));
+
+    // Track interview time for free tier users
+    if (isFreeTier && interviewData.startTime) {
+      const durationInMinutes = Math.ceil(
+        (endTime.getTime() - interviewData.startTime.getTime()) / (1000 * 60)
+      );
+      await trackInterviewTime(durationInMinutes);
+    }
+
+    // Generate and set final feedback
+    const finalFeedback = generateFeedback();
+    setFeedback(finalFeedback);
+
+    // Add completion message
+    const completionMessage: Message = {
+      id: 'completion-' + Date.now(),
+      content: `
+Great job completing the interview! Here's a quick summary:
+- Questions Completed: ${interviewData.questionsAnswered}/${questionSet.length}
+- Duration: ${Math.floor((endTime.getTime() - (interviewData.startTime?.getTime() || 0)) / 60000)} minutes
+- Communication: ${finalFeedback.communication}
+- Technical Skills: ${finalFeedback.technicalSkills}
+- Problem Solving: ${finalFeedback.problemSolving}
+
+Check out your detailed feedback below! 👇
+${isFreeTier ? `\nYou have ${remainingMinutes} minutes remaining in your free tier.` : ''}
+      `,
+      sender: 'ai',
+      timestamp: new Date()
+    };
+    setMessages(prev => [...prev, completionMessage]);
+  };
+
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
 
+  // Timer effect for tracking interview time
+  useEffect(() => {
+    if (interviewState === InterviewState.ACTIVE && isFreeTier) {
+      intervalRef.current = setInterval(() => {
+        setInterviewTimeElapsed(prev => {
+          const newTime = prev + 1;
+          if (newTime >= remainingMinutes * 60) {
+            // Time limit reached
+            setShowUpgradeModal(true);
+            endInterview();
+          }
+          return newTime;
+        });
+      }, 1000);
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+      }
+    };
+  }, [interviewState, isFreeTier, remainingMinutes]);
+
   // Initialize interview
   const startInterview = async () => {
+    if (!canStartInterview) {
+      setShowUpgradeModal(true);
+      return;
+    }
+
     setInterviewState(InterviewState.ACTIVE);
     setIsLoading(true);
     
     // Initialize interview data
+    const startTime = new Date();
     setInterviewData({
       responses: [],
-      startTime: new Date(),
+      startTime,
       endTime: null,
       questionsAnswered: 0
     });
@@ -120,7 +220,11 @@ export default function ChatInterface({ topic = 'problem-solving-dsa' }: ChatInt
 
       const welcomeMessage: Message = {
         id: 'welcome-' + Date.now(),
-        content: "👋 Welcome to your interview! I'm Alex, your AI interviewer. I'll be asking you questions and providing feedback throughout our session. Let's begin!",
+        content: `👋 Welcome to your interview! I'm Alex, your AI interviewer. ${
+          isFreeTier 
+            ? `You have ${remainingMinutes} minutes remaining in your free tier.` 
+            : "I'll be asking you questions and providing feedback throughout our session."
+        } Let's begin!`,
         sender: 'ai',
         timestamp: new Date()
       };
@@ -183,38 +287,6 @@ export default function ChatInterface({ topic = 'problem-solving-dsa' }: ChatInt
       problemSolving,
       suggestions
     };
-  };
-
-  const endInterview = () => {
-    setInterviewState(InterviewState.COMPLETED);
-    
-    // Update interview data
-    setInterviewData(prev => ({
-      ...prev,
-      endTime: new Date()
-    }));
-
-    // Generate and set final feedback
-    const finalFeedback = generateFeedback();
-    setFeedback(finalFeedback);
-
-    // Add completion message
-    const completionMessage: Message = {
-      id: 'completion-' + Date.now(),
-      content: `
-Great job completing the interview! Here's a quick summary:
-- Questions Completed: ${interviewData.questionsAnswered}/${questionSet.length}
-- Duration: ${Math.floor((new Date().getTime() - (interviewData.startTime?.getTime() || 0)) / 60000)} minutes
-- Communication: ${finalFeedback.communication}
-- Technical Skills: ${finalFeedback.technicalSkills}
-- Problem Solving: ${finalFeedback.problemSolving}
-
-Check out your detailed feedback below! 👇
-      `,
-      sender: 'ai',
-      timestamp: new Date()
-    };
-    setMessages(prev => [...prev, completionMessage]);
   };
 
   const handleSendMessage = async (messageContent: string) => {
@@ -411,7 +483,13 @@ Check out your detailed feedback below! 👇
   };
 
   return (
-    <div className="w-full h-screen flex flex-col bg-gray-900 overflow-hidden">
+    <div className="w-full h-screen flex flex-col bg-gray-900 overflow-hidden relative">
+      {/* Usage Indicator for Free Tier */}
+      {isFreeTier && (
+        <div className="absolute top-4 right-4 z-50 w-72">
+          <UsageIndicator />
+        </div>
+      )}
       {/* Top Section - Progress and Chat */}
       <div className="flex-1 flex min-h-0">
         {/* Left Panel - Progress */}
@@ -702,6 +780,14 @@ Check out your detailed feedback below! 👇
           </div>
         </div>
       )}
+
+      {/* Upgrade Modal */}
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+        remainingMinutes={remainingMinutes}
+        trigger={hasReachedLimit ? 'time_limit' : 'feature_limit'}
+      />
     </div>
   );
 }

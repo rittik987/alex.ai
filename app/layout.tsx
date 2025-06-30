@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { Inter } from 'next/font/google';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { SubscriptionProvider } from '@/lib/revenuecat/provider';
 import { Toaster } from '@/components/ui/sonner';
 
 const inter = Inter({ subsets: ['latin'] });
@@ -20,8 +21,10 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className={inter.className} suppressHydrationWarning={true}>
         <AuthProvider>
-          {children}
-          <Toaster />
+          <SubscriptionProvider>
+            {children}
+            <Toaster />
+          </SubscriptionProvider>
         </AuthProvider>
       </body>
     </html>
