@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import { Brain, CheckCircle, XCircle, Loader2 } from 'lucide-react';
@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
-export default function ConfirmPage() {
+function ConfirmContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
@@ -112,5 +112,31 @@ export default function ConfirmPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ConfirmPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/10 to-gray-900 flex items-center justify-center">
+        <div className="container mx-auto px-6">
+          <div className="max-w-md mx-auto">
+            <Card className="bg-gray-800/50 border-gray-700 p-8 text-center">
+              <div className="flex items-center justify-center space-x-2 mb-6">
+                <Brain className="h-8 w-8 text-purple-400" />
+                <span className="text-xl font-bold text-white">InterviewCracker AI</span>
+              </div>
+              <div className="space-y-4">
+                <Loader2 className="h-12 w-12 text-purple-400 animate-spin mx-auto" />
+                <h2 className="text-xl font-semibold text-white">Loading...</h2>
+                <p className="text-gray-400">Please wait...</p>
+              </div>
+            </Card>
+          </div>
+        </div>
+      </div>
+    }>
+      <ConfirmContent />
+    </Suspense>
   );
 }

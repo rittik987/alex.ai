@@ -3,18 +3,19 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image'; // <-- Imported the Next.js Image component
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import AuthModal from '@/components/auth/AuthModal';
 import DashboardSkeleton from '@/components/dashboard/DashboardSkeleton';
-import { 
-  Brain, 
-  MessageCircle, 
-  Code, 
-  TrendingUp, 
-  Users, 
+import {
+  Brain,
+  MessageCircle,
+  Code,
+  TrendingUp,
+  Users,
   Zap,
   ChevronRight,
   PlayCircle,
@@ -34,48 +35,27 @@ export default function HomePage() {
   // Handle redirects for authenticated users
   useEffect(() => {
     if (!loading && isMounted && user) {
-      console.log('🏠 HomePage: User authenticated, checking profile...', { 
-        user: user.email, 
-        profile: profile?.full_name,
-        field: profile?.field 
-      });
-      
       if (profile && profile.full_name && profile.field) {
-        console.log('➡️ HomePage: Complete profile found, redirecting to dashboard');
         router.push('/dashboard');
       } else {
-        console.log('➡️ HomePage: Incomplete profile, redirecting to onboarding');
         router.push('/onboarding');
       }
     }
   }, [user, profile, loading, isMounted, router]);
 
-  console.log('🏠 HomePage: Render state:', { 
-    user: user?.email, 
-    profile: profile?.full_name, 
-    loading,
-    isMounted
-  });
-
   const handleGetStarted = () => {
-    console.log('🚀 HomePage: Get Started clicked');
     if (user) {
-      console.log('👤 HomePage: User exists, checking profile...');
       if (profile && profile.full_name && profile.field) {
-        console.log('➡️ HomePage: Complete profile, redirecting to dashboard');
         router.push('/dashboard');
       } else {
-        console.log('➡️ HomePage: Incomplete profile, redirecting to onboarding');
         router.push('/onboarding');
       }
     } else {
-      console.log('🔑 HomePage: No user, showing auth modal');
       setShowAuthModal(true);
     }
   };
 
   const handleDashboardClick = () => {
-    console.log('📊 HomePage: Dashboard button clicked');
     if (user) {
       if (profile && profile.full_name && profile.field) {
         router.push('/dashboard');
@@ -88,13 +68,11 @@ export default function HomePage() {
   };
 
   if (loading || !isMounted) {
-    console.log('⏳ HomePage: Loading...');
     return <DashboardSkeleton />;
   }
 
   // Don't render the page content if user is authenticated (they should be redirected)
   if (user) {
-    console.log('👤 HomePage: User authenticated, should be redirected');
     return <DashboardSkeleton />;
   }
 
@@ -103,11 +81,33 @@ export default function HomePage() {
       {/* Navigation */}
       <nav className="container mx-auto px-6 py-6">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
+          {/* Left Side: Logo */}
+          <div className="flex flex-1 items-center space-x-2">
             <Brain className="h-8 w-8 text-purple-400" />
             <span className="text-xl font-bold text-white">InterviewCracker AI</span>
           </div>
-          <div className="hidden md:flex items-center space-x-6">
+
+          {/* Middle: Built on Bolt Badge (visible on md screens and up) */}
+          <div className="hidden md:flex justify-center flex-1">
+            <a
+              href="https://bolt.new/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hover:opacity-80 transition-opacity"
+            >
+              {/* Using Next.js Image component with local SVG */}
+              <Image
+                src="/built-on-bolt.svg" // Assumes the SVG is in the /public directory
+                alt="Built on Bolt"
+                width={70}
+                height={40} // Set an appropriate height
+                priority // Preload image since it's in the header
+              />
+            </a>
+          </div>
+
+          {/* Right Side: Nav Links and Auth Button */}
+          <div className="hidden md:flex flex-1 items-center justify-end space-x-6">
             <Link href="#features" className="text-gray-300 hover:text-white transition-colors">
               Features
             </Link>
@@ -115,15 +115,15 @@ export default function HomePage() {
               How It Works
             </Link>
             {user ? (
-              <Button 
+              <Button
                 className="bg-purple-600 hover:bg-purple-700"
                 onClick={handleDashboardClick}
               >
                 Dashboard
               </Button>
             ) : (
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="border-purple-400 text-purple-400 hover:bg-purple-400 hover:text-white"
                 onClick={() => setShowAuthModal(true)}
               >
@@ -359,6 +359,7 @@ export default function HomePage() {
       </footer>
 
       <AuthModal isOpen={showAuthModal} onClose={() => setShowAuthModal(false)} />
+
     </div>
   );
 }

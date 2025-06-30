@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import ChatInterface from '@/components/interview/ChatInterface';
 import CodeEditor from '@/components/interview/CodeEditor';
@@ -19,7 +19,7 @@ const topicTitles: Record<string, string> = {
   'system-design-basics': 'System Design Basics'
 };
 
-export default function InterviewPage() {
+function InterviewContent() {
   const searchParams = useSearchParams();
   const [topic, setTopic] = useState<string>('problem-solving-dsa');
   const [mode, setMode] = useState<string>('chat');
@@ -104,5 +104,20 @@ export default function InterviewPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function InterviewPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-purple-900/10 to-gray-900 flex items-center justify-center">
+        <div className="text-center">
+          <Brain className="h-12 w-12 text-purple-400 animate-pulse mx-auto mb-4" />
+          <p className="text-gray-300">Loading interview session...</p>
+        </div>
+      </div>
+    }>
+      <InterviewContent />
+    </Suspense>
   );
 }

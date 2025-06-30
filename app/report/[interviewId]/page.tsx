@@ -14,13 +14,13 @@ import {
 import Link from 'next/link';
 
 interface ReportPageProps {
-  params: {
+  params: Promise<{
     interviewId: string;
-  };
+  }>;
 }
 
-export default function ReportPage({ params }: ReportPageProps) {
-  const interviewId = params.interviewId;
+export default async function ReportPage({ params }: ReportPageProps) {
+  const { interviewId } = await params;
 
   // Mock data - replace with actual data fetching
   const reportData = {
